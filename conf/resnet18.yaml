@@ -1,0 +1,29 @@
+# Example config for training with ResNet-18
+dataset:
+  images_dir: /data/vindr/images_png
+  annotations_file: /data/vindr/annotations.csv
+  view: CC
+  train_split: training
+  val_split: test
+
+model:
+  name: resnet18
+  num_classes: 2
+  pretrained: true
+  in_channels: 1
+  freeze_backbone: false
+
+training:
+  image_size: 224
+  batch_size: 16
+  epochs: 20
+  lr: 1e-4
+  device: auto
+  save_dir: outputs/checkpoints/resnet18
+  workers: 4
+
+wandb:
+  use: true
+  project: vindr-mammograph
+  entity: my-team
+  run_name: resnet18-experiment

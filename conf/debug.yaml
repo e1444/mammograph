@@ -1,0 +1,28 @@
+dataset:
+  images_dir: /home/e1444/repos/mammograph/data/vindr-mammo/1.0.0/images
+  annotations_file: /home/e1444/repos/mammograph/data/vindr-mammo/1.0.0/breast-level_annotations.csv
+  view: CC
+  train_split: training
+  val_split: test
+
+model:
+  name: resnet18
+  num_classes: 6
+  pretrained: false
+  in_channels: 1
+  freeze_backbone: true
+
+training:
+  image_size: 128
+  batch_size: 4
+  epochs: 1
+  lr: 1e-4
+  device: cpu
+  save_dir: outputs/checkpoints/debug
+  workers: 0
+
+wandb:
+  use: true
+  project: vindr-mammograph
+  entity: e1444-university-of-toronto
+  run_name: debug
