@@ -1,0 +1,12 @@
+torch
+torchvision
+pandas
+hydra-core
+omegaconf
+wandb
+Pillow
+scikit-learn
+numpy
+matplotlib
+seaborn
+tqdm
