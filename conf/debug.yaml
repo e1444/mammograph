@@ -17,7 +17,7 @@ training:
   batch_size: 4
   epochs: 1
   lr: 1e-4
-  device: cpu
+  device: auto
   save_dir: outputs/checkpoints/debug
   workers: 0
 

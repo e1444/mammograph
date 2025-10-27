@@ -12,7 +12,7 @@ import pandas as pd
 # ensure repo root is importable when running the script directly
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from data_processing.vindr_dataset import VinDrDataset
+from dataset.vindr_dataset import VinDrDataset
 from model.model import get_model
 
 

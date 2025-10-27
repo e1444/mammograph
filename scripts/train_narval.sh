@@ -28,7 +28,7 @@ else
 	echo "Warning: virtualenv ENV not found at $REPO_DIR/ENV. Continuing without activating virtualenv."
 fi
 
-export WANDB_API_KEY="df05c1ab31b7f4497549f0fcb14063d723b2a8b7"
+export WANDB_MODE=offline
 
 # Training command: adjust paths below as needed
-python -m src.train_hydra --config-name=debug
+python -m src.train_hydra --config-name=resnet18

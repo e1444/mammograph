@@ -1,14 +1,14 @@
 # Example config for training with ResNet-18
 dataset:
-  images_dir: /data/vindr/images_png
-  annotations_file: /data/vindr/annotations.csv
+  images_dir: /home/e1444/repos/mammograph/data/vindr-mammo/1.0.0/images
+  annotations_file: /home/e1444/repos/mammograph/data/vindr-mammo/1.0.0/breast-level_annotations.csv
   view: CC
   train_split: training
   val_split: test
 
 model:
   name: resnet18
-  num_classes: 2
+  num_classes: 6
   pretrained: true
   in_channels: 1
   freeze_backbone: false
@@ -17,7 +17,7 @@ training:
   image_size: 224
   batch_size: 16
   epochs: 20
-  lr: 1e-4
+  lr: 1e-3
   device: auto
   save_dir: outputs/checkpoints/resnet18
   workers: 4
@@ -25,5 +25,5 @@ training:
 wandb:
   use: true
   project: vindr-mammograph
-  entity: my-team
+  entity: e1444-university-of-toronto
   run_name: resnet18-experiment
