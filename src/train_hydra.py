@@ -37,7 +37,7 @@ def dictconfig_to_namespace(cfg: DictConfig) -> Namespace:
     d['image_size'] = cfg.training.image_size
     d['batch_size'] = cfg.training.batch_size
     d['epochs'] = cfg.training.epochs
-    d['lr'] = cfg.training.lr
+    d['lr'] = cfg.optimizer.lr
     d['device'] = cfg.training.device if cfg.training.device != 'auto' else ('cuda' if __import__('torch').cuda.is_available() else 'cpu')
     d['save_dir'] = cfg.training.save_dir
     d['workers'] = cfg.training.workers
@@ -47,13 +47,18 @@ def dictconfig_to_namespace(cfg: DictConfig) -> Namespace:
     d['wandb_entity'] = cfg.wandb.entity
     d['wandb_run_name'] = cfg.wandb.run_name
 
+    # pass through optimizer and scheduler configs
+    d['optimizer_cfg'] = cfg.optimizer
+    d['scheduler_cfg'] = cfg.scheduler
+
     # label mapping options (allow list or comma-string for label_values)
-    d['label_map_file'] = cfg.get('label_map_file', None)
-    lv = cfg.get('label_values', None)
+    d['label_map_file'] = cfg.dataset.label_map_file
+    lv = cfg.dataset.get('label_values', None)
     if isinstance(lv, (list, tuple)):
         lv = ','.join(map(str, lv))
     d['label_values'] = lv
-    d['auto_labels'] = cfg.get('auto_labels', 'auto')
+    d['auto_labels'] = cfg.dataset.auto_labels
+    d['use_class_weights'] = cfg.dataset.use_class_weights
 
     return Namespace(**d)
 

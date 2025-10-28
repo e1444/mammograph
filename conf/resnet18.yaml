@@ -5,10 +5,14 @@ dataset:
   view: CC
   train_split: training
   val_split: test
+  auto_labels: auto
+  label_map_file: null
+  label_values: null
+  use_class_weights: true
 
 model:
   name: resnet18
-  num_classes: 6
+  num_classes: 5
   pretrained: true
   in_channels: 1
   freeze_backbone: false
@@ -17,10 +21,18 @@ training:
   image_size: 224
   batch_size: 16
   epochs: 20
-  lr: 1e-3
   device: auto
   save_dir: outputs/checkpoints/resnet18
   workers: 4
+
+optimizer:
+  name: Adam
+  lr: 1e-3
+
+scheduler:
+  name: CosineAnnealingLR
+  params:
+    T_max: ${training.epochs}
 
 wandb:
   use: true

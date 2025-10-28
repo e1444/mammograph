@@ -84,17 +84,12 @@ class ResNetMammo(nn.Module):
 			raise ValueError(f"Unknown model_name={model_name}; available: resnet18,resnet34,resnet50,...")
 
 		# Instantiate backbone
+		weights = "DEFAULT" if pretrained else None
 		try:
-			backbone = models.__dict__[model_name](pretrained=pretrained)
+			backbone = models.__dict__[model_name](weights=weights)
 		except TypeError:
-			# Newer torchvision uses `weights=` kwarg; fall back to no-args constructor and warn
-			backbone = models.__dict__[model_name]()
-			if pretrained:
-				try:
-					# attempt to load default weights where available
-					state = models.get_model_weights(models.__dict__[model_name]).DEFAULT
-				except Exception:
-					state = None
+			# Fallback for older torchvision versions that use `pretrained`
+			backbone = models.__dict__[model_name](pretrained=pretrained)
 
 		# Adapt first conv to requested in_channels
 		_replace_first_conv(backbone, in_channels)

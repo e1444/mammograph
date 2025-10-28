@@ -8,43 +8,13 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 import pandas as pd
+from omegaconf import OmegaConf
 
 # ensure repo root is importable when running the script directly
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from dataset.vindr_dataset import VinDrDataset
 from model.model import get_model
-
-
-class LabelWrappedDataset(Dataset):
-    """Wraps the provided dataset to convert annotation values to integer labels.
-
-    Expects the underlying dataset's __getitem__ to return a dict containing either
-    'breast_birads' or 'annotation' as the label entry.
-    """
-
-    def __init__(self, base_ds: Dataset, label_map: Optional[dict] = None):
-        self.base = base_ds
-        self.label_map = label_map
-
-    def __len__(self):
-        return len(self.base)
-
-    def __getitem__(self, idx):
-        sample = self.base[idx]
-        # handle keys used in VinDrDataset
-        label = sample.get('breast_birads', sample.get('annotation'))
-        if self.label_map is not None:
-            label = self.label_map[label]
-        else:
-            # try to coerce to int if possible
-            try:
-                label = int(label)
-            except Exception:
-                raise ValueError(f"Unable to convert label '{label}' to int. Provide a label_map.")
-
-        image = sample.get('image')
-        return {'image': image, 'label': torch.tensor(label, dtype=torch.long)}
 
 
 def make_transforms(image_size: int = 224):
@@ -124,6 +94,9 @@ def parse_args():
     p.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
     p.add_argument('--save-dir', default='checkpoints')
     p.add_argument('--workers', type=int, default=4)
+    # These are not intended to be set via CLI but are passed by hydra wrapper
+    p.add_argument('--optimizer-cfg', type=lambda x: None)
+    p.add_argument('--scheduler-cfg', type=lambda x: None)
     # Weights & Biases
     p.add_argument('--use-wandb', action='store_true', help='Enable Weights & Biases logging')
     p.add_argument('--wandb-project', type=str, default=None, help='W&B project name')
@@ -133,6 +106,8 @@ def parse_args():
     p.add_argument('--label-map-file', type=str, default=None, help='Path to JSON file containing label->int mapping')
     p.add_argument('--label-values', type=str, default=None, help='Comma-separated ordered list of label values to map to 0..N-1')
     p.add_argument('--auto-labels', type=str, choices=['auto', 'birads', 'none'], default='auto', help="How to build label mapping: 'auto' detects unique labels from annotations, 'birads' uses common BI-RADS ordering, 'none' attempts integer coercion and errors if it fails")
+    p.add_argument('--use-class-weights', action='store_true',
+                        help="Use inverse frequency class weighting for the loss function.")
     return p.parse_args()
 
 
@@ -157,8 +132,8 @@ def main():
         wandb.init(project=wb_project, entity=args.wandb_entity, name=args.wandb_run_name, config=vars(args))
 
     # Datasets
-    train_ds_raw = VinDrDataset(args.images_dir, args.annotations_file, split=args.train_split, view=args.view, transform=transform)
-    val_ds_raw = VinDrDataset(args.images_dir, args.annotations_file, split=args.val_split, view=args.view, transform=transform)
+    train_ds = VinDrDataset(args.images_dir, args.annotations_file, split=args.train_split, view=args.view, transform=transform, )
+    val_ds = VinDrDataset(args.images_dir, args.annotations_file, split=args.val_split, view=args.view, transform=transform)
 
     # Build label mapping according to CLI options
     label_map = None
@@ -195,8 +170,8 @@ def main():
             label_map = None
 
     # if label_map is still None and auto_labels == 'none' or detection failed, we'll let LabelWrappedDataset try coercion
-    train_ds = LabelWrappedDataset(train_ds_raw, label_map=label_map)
-    val_ds = LabelWrappedDataset(val_ds_raw, label_map=label_map)
+    train_ds.label_map = label_map
+    val_ds.label_map = label_map
 
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=args.workers)
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
@@ -205,18 +180,56 @@ def main():
     model = get_model(model_name=args.model_name, num_classes=args.num_classes, pretrained=args.pretrained, in_channels=args.in_channels, freeze_backbone=args.freeze_backbone)
     model = model.to(device)
 
-    optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr)
-    criterion = nn.CrossEntropyLoss()
+    # Optimizer and Scheduler
+    optim_cfg = getattr(args, 'optimizer_cfg', None)
+    sched_cfg = getattr(args, 'scheduler_cfg', None)
+
+    if optim_cfg and hasattr(torch.optim, optim_cfg.name):
+        optimizer = getattr(torch.optim, optim_cfg.name)(
+            filter(lambda p: p.requires_grad, model.parameters()),
+            lr=optim_cfg.lr
+        )
+    else:
+        # fallback to default
+        optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr)
+
+    scheduler = None
+    if sched_cfg and hasattr(torch.optim.lr_scheduler, sched_cfg.name):
+        raw_params = OmegaConf.to_container(sched_cfg.params, resolve=True) if sched_cfg.params else {}
+        if isinstance(raw_params, dict):
+            scheduler_params = {str(k): v for k, v in raw_params.items()}
+        else:
+            scheduler_params = {}
+        scheduler = getattr(torch.optim.lr_scheduler, sched_cfg.name)(optimizer, **scheduler_params)
+
+    class_weights: Optional[torch.Tensor] = None
+    if args.use_class_weights:
+        # compute class weights based on training set distribution
+        class_distribution = train_ds.get_class_distribution()
+        if class_distribution.numel() != args.num_classes:
+            print(f"Warning: detected class distribution size {class_distribution.numel()} does not match num_classes={args.num_classes}; skipping class weights")
+        else:
+            total = class_distribution.sum().item()
+            weights = [total / (count.item() + 1e-6) for count in class_distribution]
+            class_weights = torch.tensor(weights, dtype=torch.float).to(device)
+            print("Using class weights:", class_weights.tolist())
+            
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
 
     best_val = float('inf')
     for epoch in range(1, args.epochs + 1):
         train_loss = train_epoch(model, train_loader, optimizer, criterion, device)
         val_loss, val_acc = eval_epoch(model, val_loader, criterion, device)
+        if scheduler:
+            scheduler.step()
 
         print(f'Epoch {epoch}/{args.epochs} - train_loss: {train_loss:.4f}  val_loss: {val_loss:.4f}  val_acc: {val_acc:.4f}')
         # log to wandb if enabled
         if wandb is not None:
-            wandb.log({'epoch': epoch, 'train_loss': train_loss, 'val_loss': val_loss, 'val_acc': val_acc})
+            log_data = {'epoch': epoch, 'train_loss': train_loss, 'val_loss': val_loss, 'val_acc': val_acc}
+            if scheduler:
+                log_data['lr'] = scheduler.get_last_lr()[0]
+            wandb.log(log_data)
         # save checkpoint
         state = {
             'epoch': epoch,
